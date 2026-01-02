@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>PIPI MONITOR | Professional View</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.0/hls.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --bg-color: #111;
+            --panel-bg: #222;
+            --accent: #ff8800;
+            --text-main: #f0f0f0;
+            --border: #444;
+        }
+
+        body {
+            margin: 0; background-color: var(--bg-color); color: var(--text-main);
+            font-family: 'Segoe UI', Arial, sans-serif; height: 100vh;
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+
+        /* --- HEADER CONTROL --- */
+        header {
+            padding: 0 15px; background: var(--panel-bg); 
+            border-bottom: 2px solid var(--accent);
+            display: flex; justify-content: space-between; align-items: center;
+            height: 50px; z-index: 100;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        .brand { font-weight: bold; color: var(--accent); font-size: 18px; letter-spacing: 1px; display: flex; align-items: center; gap: 10px;}
+        .control-group { display: flex; align-items: center; gap: 10px; }
+        
+        select, button {
+            padding: 6px 12px; cursor: pointer; background: #333; color: #ddd;
+            border: 1px solid #555; border-radius: 4px; font-size: 13px;
+            transition: 0.2s; display: flex; align-items: center; gap: 6px; outline: none;
+        }
+        select:hover, button:hover { background: #444; border-color: var(--accent); color: white; }
+        .btn-active { background: var(--accent) !important; color: #000 !important; font-weight: bold; border-color: var(--accent) !important; }
+        .page-indicator { font-family: monospace; font-size: 14px; color: var(--accent); padding: 0 10px; font-weight: bold; }
+
+        /* --- GRID VIDEO --- */
+        #video-grid {
+            flex-grow: 1; display: grid; gap: 2px; padding: 2px;
+            background: #000; overflow: hidden;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(4, 1fr);
+        }
+
+        .layout-2x2 { grid-template-columns: repeat(2, 1fr) !important; grid-template-rows: repeat(2, 1fr) !important; }
+        .layout-3x3 { grid-template-columns: repeat(3, 1fr) !important; grid-template-rows: repeat(3, 1fr) !important; }
+        .layout-4x4 { grid-template-columns: repeat(4, 1fr) !important; grid-template-rows: repeat(4, 1fr) !important; }
+
+        .cam-container {
+            position: relative; background: #000; border: 1px solid #333;
+            display: flex; align-items: center; justify-content: center; overflow: hidden;
+        }
+        .cam-hidden { display: none !important; }
+
+        video { width: 100%; height: 100%; object-fit: contain; }
+
+        .cam-label {
+            position: absolute; top: 0; left: 0;
+            background: rgba(255, 136, 0, 0.8);
+            color: #000;
+            padding: 2px 8px; font-size: 11px; font-weight: bold;
+            z-index: 5; pointer-events: none; border-bottom-right-radius: 5px;
+        }
+
+        .stats-overlay {
+            position: absolute; top: 5px; right: 5px;
+            background: rgba(0,0,0,0.7); color: #fff; padding: 2px 6px;
+            border-radius: 3px; font-size: 10px; font-family: monospace;
+            z-index: 5; pointer-events: none; border: 1px solid #555;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand"><i class="fas fa-cone"></i> PIPI VIEW</div>
+
+        <div class="control-group">
+            <select id="quality-selector" onchange="changeQuality(this.value)" title="Chọn chất lượng hình ảnh">
+                <option value="-1">⚡ Auto (Mạng yếu tự giảm)</option>
+                <option value="low">🚀 Low (Siêu mượt)</option>
+                <option value="high">💎 High (Nét căng)</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <button onclick="setLayout(4)" id="btn-2x2">2x2</button>
+            <button onclick="setLayout(9)" id="btn-3x3">3x3</button>
+            <button onclick="setLayout(16)" id="btn-4x4" class="btn-active">4x4</button>
+        </div>
+
+        <div class="control-group">
+            <button onclick="changePage(-1)"><i class="fas fa-chevron-left"></i></button>
+            <span class="page-indicator" id="page-display">1/1</span>
+            <button onclick="changePage(1)"><i class="fas fa-chevron-right"></i></button>
+        </div>
+
+        <div class="control-group">
+            <button onclick="toggleStats()" id="btn-stats"><i class="fas fa-info-circle"></i> Info</button>
+            <button onclick="location.reload()" title="Tải lại tất cả"><i class="fas fa-sync-alt"></i></button>
+        </div>
+    </header>
+
+    <div id="video-grid" class="layout-4x4"></div>
+
+    <script>
+        // --- CẤU HÌNH HỆ THỐNG ---
+        const SERVER_HOST = 'http://triduckinglive.ddns.net:8080';
+        
+        // 👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇👇
+        // 🔴🔴🔴🔴 KHU VỰC SỬA TÊN STREAM (ĐÃ THÊM 3 KÊNH MỚI) 🔴🔴🔴🔴
+        
+        const STREAM_LIST = [
+            'source', 'source1', 'source2', // <-- 3 Kênh mới thêm ở đầu
+            'pipi1', 'pipi2', 'pipi3', 'pipi4', 'pipi5', 
+            'pipi6', 'pipi7', 'pipi8', 'pipi9', 'pipi10', 
+            'pipi11', 'pipi12', 'pipi13', 'pipi14', 'pipi15'
+        ];
+
+        // 👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆
+
+        let currentLayout = 16;
+        let currentPage = 1;
+        let showStats = false;
+        let globalQualityLevel = -1;
+        const hlsInstances = {};
+
+        document.addEventListener("DOMContentLoaded", () => {
+            renderGrid(); // Render lần đầu
+            setInterval(updateStats, 1000);
+        });
+
+        // Hàm render lại lưới video mỗi khi chuyển trang
+        function renderGrid() {
+            const grid = document.getElementById('video-grid');
+            grid.innerHTML = ''; // Xóa lưới cũ để vẽ lại theo trang
+            
+            const totalPages = Math.ceil(STREAM_LIST.length / currentLayout);
+            document.getElementById('page-display').innerText = `${currentPage}/${totalPages}`;
+
+            const startIdx = (currentPage - 1) * currentLayout;
+            const endIdx = startIdx + currentLayout;
+
+            // Vòng lặp tạo ô chứa video
+            for (let i = 0; i < currentLayout; i++) {
+                const streamIndex = startIdx + i;
+                const name = STREAM_LIST[streamIndex]; // Lấy tên stream theo thứ tự
+
+                const div = document.createElement('div');
+                div.className = 'cam-container';
+                div.id = `box-${streamIndex}`;
+
+                if (name) {
+                    // Nếu có tên stream (Có dữ liệu)
+                    div.innerHTML = `
+                        <div class="cam-label">${name.toUpperCase()}</div>
+                        <div class="stats-overlay" id="stat-${name}">Waiting...</div>
+                        <video id="vid-${name}" muted playsinline controls preload="auto"></video>
+                    `;
+                    grid.appendChild(div);
+                    // Chỉ load video nếu chưa load
+                    if (!hlsInstances[name]) {
+                        loadHls(name);
+                    } else {
+                        // Nếu đã có instance, attach lại vào thẻ video mới tạo
+                        const video = div.querySelector('video');
+                        hlsInstances[name].attachMedia(video);
+                        video.play().catch(()=>{});
+                    }
+                } else {
+                    // Ô trống (Hết danh sách)
+                    div.innerHTML = `<div style="color:#333; font-weight:bold;">NO SIGNAL</div>`;
+                    grid.appendChild(div);
+                }
+            }
+        }
+
+        function loadHls(name) {
+            const url = `${SERVER_HOST}/hls/${name}/index.m3u8`;
+
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    capLevelToPlayerSize: true,
+                    maxBufferLength: 10,
+                    manifestLoadingTimeOut: 10000,
+                });
+
+                // Load source nhưng chưa attach vội, đợi render
+                hls.loadSource(url);
+                
+                // Lưu vào instance manager
+                hlsInstances[name] = hls;
+
+                // Tìm thẻ video hiện tại để attach (nếu đang hiển thị)
+                const video = document.getElementById(`vid-${name}`);
+                if (video) {
+                    hls.attachMedia(video);
+                    video.play().catch(e => {});
+                }
+
+                hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
+                    const v = document.getElementById(`vid-${name}`);
+                    if(v) v.play().catch(e => {});
+                    if (name === STREAM_LIST[0]) updateQualityOptions(hls.levels);
+                    applyQualityToInstance(hls);
+                });
+                
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR: hls.startLoad(); break;
+                            case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break;
+                            default: hls.destroy(); break;
+                        }
+                    }
+                });
+            } else {
+                // Fallback cho Safari
+                const video = document.getElementById(`vid-${name}`);
+                if (video && video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = url;
+                    video.play();
+                }
+            }
+        }
+
+        function updateQualityOptions(levels) {
+            const select = document.getElementById('quality-selector');
+            select.innerHTML = `
+                <option value="-1">⚡ Auto (Mặc định)</option>
+                <option value="low">🚀 Low (Tiết kiệm data)</option>
+                <option value="high">💎 High (Nét nhất)</option>
+            `;
+            if (levels.length > 1) {
+                levels.forEach((lvl, index) => {
+                    const opt = document.createElement('option');
+                    opt.value = index;
+                    opt.innerText = `🔹 ${lvl.height}p (${Math.round(lvl.bitrate/1000)}k)`;
+                    select.appendChild(opt);
+                });
+            }
+        }
+
+        function changeQuality(val) {
+            if (val === 'low') globalQualityLevel = 0;
+            else if (val === 'high') globalQualityLevel = 'high';
+            else globalQualityLevel = parseInt(val);
+            Object.values(hlsInstances).forEach(hls => applyQualityToInstance(hls));
+        }
+
+        function applyQualityToInstance(hls) {
+            if (!hls.levels || hls.levels.length === 0) return;
+            if (globalQualityLevel === 'high') hls.currentLevel = hls.levels.length - 1;
+            else if (globalQualityLevel === -1) hls.currentLevel = -1;
+            else hls.currentLevel = globalQualityLevel;
+        }
+
+        function setLayout(count) {
+            currentLayout = count; currentPage = 1;
+            document.querySelectorAll('[id^="btn-"]').forEach(b => b.classList.remove('btn-active'));
+            if(count === 4) document.getElementById('btn-2x2').classList.add('btn-active');
+            if(count === 9) document.getElementById('btn-3x3').classList.add('btn-active');
+            if(count === 16) document.getElementById('btn-4x4').classList.add('btn-active');
+
+            const grid = document.getElementById('video-grid');
+            grid.className = ''; 
+            if(count === 4) grid.classList.add('layout-2x2');
+            if(count === 9) grid.classList.add('layout-3x3');
+            if(count === 16) grid.classList.add('layout-4x4');
+
+            renderGrid();
+        }
+
+        function changePage(delta) {
+            const totalPages = Math.ceil(STREAM_LIST.length / currentLayout);
+            const newPage = currentPage + delta;
+            if(newPage >= 1 && newPage <= totalPages) {
+                currentPage = newPage;
+                
+                // Khi chuyển trang, ta cần Detach (ngắt) HLS khỏi các video cũ để tiết kiệm RAM
+                // và Attach vào các video mới
+                Object.values(hlsInstances).forEach(hls => hls.detachMedia());
+
+                renderGrid();
+            }
+        }
+
+        function toggleStats() {
+            showStats = !showStats;
+            document.querySelectorAll('.stats-overlay').forEach(el => el.style.display = showStats ? 'block' : 'none');
+            document.getElementById('btn-stats').classList.toggle('btn-active', showStats);
+        }
+
+        function updateStats() {
+            if(!showStats) return;
+            // Chỉ update stats cho các video đang hiển thị trên trang hiện tại
+            const startIdx = (currentPage - 1) * currentLayout;
+            const endIdx = startIdx + currentLayout;
+
+            for (let i = startIdx; i < endIdx; i++) {
+                if (i >= STREAM_LIST.length) break;
+                const name = STREAM_LIST[i];
+                
+                const v = document.getElementById(`vid-${name}`);
+                const hls = hlsInstances[name];
+                const el = document.getElementById(`stat-${name}`);
+                
+                if (v && !v.paused && el) {
+                    const res = v.videoWidth ? `${v.videoWidth}x${v.videoHeight}` : '--';
+                    let br = '0k';
+                    if (hls && hls.levels && hls.levels[hls.currentLevel]) {
+                        br = Math.round(hls.levels[hls.currentLevel].bitrate/1000) + 'k';
+                    }
+                    el.innerText = `${res} | ${br}`;
+                    el.style.color = (hls && hls.autoLevelEnabled && hls.currentLevel === 0) ? '#ffcc00' : '#fff';
+                }
+            }
+        }
+    </script>
+</body>
+</html>
