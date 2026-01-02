@@ -116,7 +116,7 @@
         // --- CẤU HÌNH HỆ THỐNG ---
         const SERVER_HOST = 'http://triduckinglive.ddns.net:8080';
         
-// 👇👇👇👇 SỬA LẠI TÊN CÓ DẤU GẠCH NGANG ( - ) CHO ĐÚNG LINK SERVER 👇👇👇👇
+        // 👇👇👇👇 KHU VỰC TÊN STREAM (ĐÃ SỬA ĐÚNG LINK CÓ DẤU GẠCH NGANG) 👇👇👇👇
         
         const STREAM_LIST = [
             'source', 'source1', 'source2',
@@ -125,7 +125,7 @@
             'pipi-11', 'pipi-12', 'pipi-13', 'pipi-14', 'pipi-15'
         ];
 
-        // 👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆
+        // 👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆
 
         let currentLayout = 16;
         let currentPage = 1;
@@ -134,53 +134,60 @@
         const hlsInstances = {};
 
         document.addEventListener("DOMContentLoaded", () => {
-            renderGrid(); // Render lần đầu
+            renderGrid();
             setInterval(updateStats, 1000);
         });
 
-        // Hàm render lại lưới video mỗi khi chuyển trang
         function renderGrid() {
             const grid = document.getElementById('video-grid');
-            grid.innerHTML = ''; // Xóa lưới cũ để vẽ lại theo trang
+            grid.innerHTML = ''; 
             
             const totalPages = Math.ceil(STREAM_LIST.length / currentLayout);
             document.getElementById('page-display').innerText = `${currentPage}/${totalPages}`;
 
             const startIdx = (currentPage - 1) * currentLayout;
-            const endIdx = startIdx + currentLayout;
-
-            // Vòng lặp tạo ô chứa video
+            
+            // Vẽ số ô theo layout (4, 9, 16)
             for (let i = 0; i < currentLayout; i++) {
                 const streamIndex = startIdx + i;
-                const name = STREAM_LIST[streamIndex]; // Lấy tên stream theo thứ tự
-
-                const div = document.createElement('div');
-                div.className = 'cam-container';
-                div.id = `box-${streamIndex}`;
-
-                if (name) {
-                    // Nếu có tên stream (Có dữ liệu)
-                    div.innerHTML = `
-                        <div class="cam-label">${name.toUpperCase()}</div>
-                        <div class="stats-overlay" id="stat-${name}">Waiting...</div>
-                        <video id="vid-${name}" muted playsinline controls preload="auto"></video>
-                    `;
-                    grid.appendChild(div);
-                    // Chỉ load video nếu chưa load
-                    if (!hlsInstances[name]) {
-                        loadHls(name);
-                    } else {
-                        // Nếu đã có instance, attach lại vào thẻ video mới tạo
-                        const video = div.querySelector('video');
-                        hlsInstances[name].attachMedia(video);
-                        video.play().catch(()=>{});
-                    }
+                
+                // Kiểm tra xem streamIndex có nằm trong danh sách không
+                if (streamIndex < STREAM_LIST.length) {
+                    const name = STREAM_LIST[streamIndex];
+                    createVideoBox(grid, name, streamIndex);
                 } else {
-                    // Ô trống (Hết danh sách)
-                    div.innerHTML = `<div style="color:#333; font-weight:bold;">NO SIGNAL</div>`;
-                    grid.appendChild(div);
+                    // Tạo ô trống nếu hết camera
+                    createEmptyBox(grid);
                 }
             }
+        }
+
+        function createVideoBox(grid, name, idx) {
+            const div = document.createElement('div');
+            div.className = 'cam-container';
+            div.id = `box-${idx}`;
+            div.innerHTML = `
+                <div class="cam-label">${name.toUpperCase()}</div>
+                <div class="stats-overlay" id="stat-${name}">Waiting...</div>
+                <video id="vid-${name}" muted playsinline controls preload="auto"></video>
+            `;
+            grid.appendChild(div);
+            
+            // Logic HLS
+            if (!hlsInstances[name]) {
+                loadHls(name);
+            } else {
+                const video = div.querySelector('video');
+                hlsInstances[name].attachMedia(video);
+                video.play().catch(()=>{});
+            }
+        }
+
+        function createEmptyBox(grid) {
+            const div = document.createElement('div');
+            div.className = 'cam-container';
+            div.innerHTML = `<div style="color:#333; font-weight:bold;">NO SIGNAL</div>`;
+            grid.appendChild(div);
         }
 
         function loadHls(name) {
@@ -193,13 +200,9 @@
                     manifestLoadingTimeOut: 10000,
                 });
 
-                // Load source nhưng chưa attach vội, đợi render
                 hls.loadSource(url);
-                
-                // Lưu vào instance manager
                 hlsInstances[name] = hls;
 
-                // Tìm thẻ video hiện tại để attach (nếu đang hiển thị)
                 const video = document.getElementById(`vid-${name}`);
                 if (video) {
                     hls.attachMedia(video);
@@ -223,7 +226,7 @@
                     }
                 });
             } else {
-                // Fallback cho Safari
+                // Fallback cho Safari (iPad/iPhone)
                 const video = document.getElementById(`vid-${name}`);
                 if (video && video.canPlayType('application/vnd.apple.mpegurl')) {
                     video.src = url;
@@ -284,11 +287,7 @@
             const newPage = currentPage + delta;
             if(newPage >= 1 && newPage <= totalPages) {
                 currentPage = newPage;
-                
-                // Khi chuyển trang, ta cần Detach (ngắt) HLS khỏi các video cũ để tiết kiệm RAM
-                // và Attach vào các video mới
                 Object.values(hlsInstances).forEach(hls => hls.detachMedia());
-
                 renderGrid();
             }
         }
@@ -301,14 +300,13 @@
 
         function updateStats() {
             if(!showStats) return;
-            // Chỉ update stats cho các video đang hiển thị trên trang hiện tại
+            // Chỉ update các video đang hiển thị
             const startIdx = (currentPage - 1) * currentLayout;
-            const endIdx = startIdx + currentLayout;
-
-            for (let i = startIdx; i < endIdx; i++) {
-                if (i >= STREAM_LIST.length) break;
-                const name = STREAM_LIST[i];
+            for (let i = 0; i < currentLayout; i++) {
+                const streamIndex = startIdx + i;
+                if (streamIndex >= STREAM_LIST.length) break;
                 
+                const name = STREAM_LIST[streamIndex];
                 const v = document.getElementById(`vid-${name}`);
                 const hls = hlsInstances[name];
                 const el = document.getElementById(`stat-${name}`);
@@ -327,4 +325,3 @@
     </script>
 </body>
 </html>
-
